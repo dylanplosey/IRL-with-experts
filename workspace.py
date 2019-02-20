@@ -4,12 +4,14 @@ import numpy as np
 
 # parameters
 nExperts = 1000
-alpha = 100
-beta = 1
+alpha = 10
+noise = 0.4
+beta = 100
 H = 5
-T = 5
+T = 1
 eta = 0.1
 nFeats = 5
+FeatsInc = [1]*5
 nRows = 5
 nCols = 5
 gamma = 0.9
@@ -22,77 +24,80 @@ U, S, Vt = np.linalg.svd(W)
 Sinv = np.linalg.inv(np.diag(S))
 A = np.dot(np.dot(U, Sinv), U.T)
 
-# generate user
-theta_star = ut.generate_experts(1).T[0]
-print(theta_star)
+regret = [0, 0]
+regret_bad = [0, 0]
+regret_good = [0, 0]
 
-# get world and samples
-mdp = ut.GridWorld(nFeats, nRows, nCols, gamma)
-D = ut.simulated_human(mdp, theta_star, alpha, H)
+for _ in range(1000):
 
-# BIRL
-E = np.eye(nFeats)
-theta_E = ut.sample_reward(mdp, D, T, eta, alpha, theta_bar, theta_bar, E, beta)
-theta_A = ut.sample_reward(mdp, D, T, eta, alpha, theta_bar, theta_bar, A, beta)
-print(theta_E)
-print(theta_A)
-
-print(ut.reward_error(theta_star, theta_E))
-print(ut.reward_error(theta_star, theta_A))
-
-pi_star, _ = ut.policy_iteraion(mdp, theta_star)
-piE, _ = ut.policy_iteraion(mdp, theta_E, pi_star)
-piA, _ = ut.policy_iteraion(mdp, theta_A, pi_star)
-
-print(ut.regret(mdp, theta_star, pi_star, piE))
-print(ut.regret(mdp, theta_star, pi_star, piA))
-
-count = [0, 0]
-for s in pi_star:
-	if piE[s] != pi_star[s]:
-		count[0] += 1
-	if piA[s] != pi_star[s]:
-		count[1] += 1
-print(count)
-
-
-
-
-
-
-
-
-
-#for _ in range(100):
-
-
-
-
-"""
-	theta_star = ut.sample_collaborator(theta_bar, M, beta)
-	print(theta_bar)
-	print(M)
-	print(theta_star)
-
-
+	# generate user
+	theta_star = ut.generate_experts(1).T[0]
 
 	# get world and samples
-	mdp = ut.GridWorld(nFeats, nRows, nCols, gamma)
-	D = ut.simulated_human(mdp, theta_star, alpha, H)
+	mdp = ut.GridWorld(nFeats, nRows, nCols, gamma, FeatsInc)
+	D = ut.simulated_human(mdp, theta_star, alpha, H, noise)
 
-	# BIRL with Vanilla, Euclidean Norm, Proposed
-	theta = []
-	E = np.diag([sum(np.diag(M)) / 4] * 4)
-	theta.append(ut.sample_reward(mdp, D, T, eta, alpha, theta_bar, theta_bar, E, 0))
-	theta.append(ut.sample_reward(mdp, D, T, eta, alpha, theta_bar, theta_bar, E, beta))
-	theta.append(ut.sample_reward(mdp, D, T, eta, alpha, theta_bar, theta_bar, M, beta))
+	# BIRL
+	E = np.diag([1]*5)
+	theta_0 = ut.sample_theta(nFeats)
+	theta_E = ut.sample_reward(mdp, D, T, eta, alpha, theta_0, theta_bar, E, beta)
+	theta_A = ut.sample_reward(mdp, D, T, eta, alpha, theta_0, theta_bar, A, beta)
 
-	# normalized regret
-	regret = [ut.regret(mdp, theta_star, theta[i]) for i in range(len(theta))]
-	Z = max(regret)
-	if Z == 0.0:
-		Z = 1.0
-	regret_total = [regret_total[i] + regret[i] / Z for i in range(len(theta))]
+	pi_star, _ = ut.policy_iteraion(mdp, theta_star)
+	piE, _ = ut.policy_iteraion(mdp, theta_E, pi_star)
+	piA, _ = ut.policy_iteraion(mdp, theta_A, pi_star)
 
-	print(regret_total)
-"""
+	rE = ut.regret(mdp, theta_star, pi_star, piE)
+	rA = ut.regret(mdp, theta_star, pi_star, piA)
+	print(rE, rA)
+
+	z = max([rE, rA, 1e-5])
+	regret[0] += rE/z
+	regret[1] += rA/z
+	print(regret)
+
+	# Test in Bad Worlds
+	mdp_bad = ut.GridWorld(nFeats, nRows, nCols, gamma, [0,0,1,1,1])
+	pi_star, _ = ut.policy_iteraion(mdp_bad, theta_star)
+	piE, _ = ut.policy_iteraion(mdp_bad, theta_E, pi_star)
+	piA, _ = ut.policy_iteraion(mdp_bad, theta_A, pi_star)
+
+	rE_b = ut.regret(mdp_bad, theta_star, pi_star, piE)
+	rA_b = ut.regret(mdp_bad, theta_star, pi_star, piA)
+
+	z = max([rE_b, rA_b, 1e-5])
+	regret_bad[0] += rE_b/z
+	regret_bad[1] += rA_b/z
+	print(regret_bad)
+
+	# Test in Good Worlds
+	mdp_good = ut.GridWorld(nFeats, nRows, nCols, gamma, [1,1,1,0,0])
+	pi_star, _ = ut.policy_iteraion(mdp_good, theta_star)
+	piE, _ = ut.policy_iteraion(mdp_good, theta_E, pi_star)
+	piA, _ = ut.policy_iteraion(mdp_good, theta_A, pi_star)
+
+	rE_g = ut.regret(mdp_good, theta_star, pi_star, piE)
+	rA_g = ut.regret(mdp_good, theta_star, pi_star, piA)
+
+	z = max([rE_g, rA_g, 1e-5])
+	regret_good[0] += rE_g/z
+	regret_good[1] += rA_g/z
+	print(regret_good)
+
+
+
+'''
+
+what are the right dependent variables?
+
+1. regret across the demonstrated MDP
+2. regret in MDP with only the "preferred" states
+3. regret in MDP with only the "constrained" states
+
+
+what are the right independent variables?
+
+1. alpha (so we can have bad demonstrations)
+
+
+'''
