@@ -22,7 +22,7 @@ def generate_experts(nExperts):
         theta_i[2] = random.uniform(-0.5, 0.4)
         theta_i[3] = theta_i[2] - random.uniform(0, 0.4)
         theta_i[4] = random.uniform(-1.0, -0.9)
-        W[:, i] = [theta_i[i] / 5.0 for i in range(5)]
+        W[:, i] = theta_i
     return W
 
 
@@ -35,26 +35,29 @@ def sample_reward(mdp, D, T, eta, alpha, theta, theta_bar, A, beta):
         theta1 = perturb_theta(theta, eta)
         pi1, V1 = policy_iteraion(mdp, theta1, pi)
         P1 = likelihood(mdp, theta1, V1, D, alpha, theta_bar, A, beta)
-        print(P1, P)
         if random.random() < min(1, P1 / P):
             theta_chain.append(theta1)
             theta, pi, P = theta1, pi1, P1
             count += 1
-    print("I sampled " + str(count) + " times!")
+    print("I sampled " + str(count) + " times...")
     theta_mean = np.mean(np.array(theta_chain), axis=0).tolist()
     return theta_mean
 
 
-def simulated_human(mdp, theta, alpha, H):
-    pi, V = policy_iteraion(mdp, theta)
+def simulated_human(mdp, theta, alpha, H, noise):
+    threshold = 1.0 - noise
+    _, V = policy_iteraion(mdp, theta)
     D = {}
     for _ in range(H):
         s = mdp.sample_state()
         while s in D:
             s = mdp.sample_state()
-        q = [a_likelihood(mdp, theta, V, s, a, alpha) for a in s.actions]
-        P = [q[i] / sum(q) for i in range(len(q))]
-        a = np.random.choice(len(q), 1, p=P)[0]
+        if random.random() < threshold:
+            q = [a_likelihood(mdp, theta, V, s, a, alpha) for a in s.actions]
+            P = [q[i] / sum(q) for i in range(len(q))]
+            a = np.random.choice(len(q), 1, p = P)[0]
+        else:
+            a = random.randint(0, len(s.actions) - 1)
         D[s] = s.actions[a]
     return D
 
@@ -79,15 +82,15 @@ def distance(theta1, theta2, A):
 
 
 def sample_theta(nFeats):
-    return [random.uniform(-1.0 / nFeats, 1.0 / nFeats) for _ in range(nFeats)]
+    return [random.uniform(-1.0, 1.0) for _ in range(nFeats)]
 
 
 def perturb_theta(theta, eta):
     nFeats = len(theta)
     theta1 = [theta[i] for i in range(nFeats)]
     for i in range(nFeats):
-        lb = max(-eta / 2.0, -1.0 / nFeats - theta[i])
-        ub = min(eta / 2.0, 1.0 / nFeats - theta[i])
+        lb = max(-eta / 2.0, -1.0 - theta[i])
+        ub = min(eta / 2.0, 1.0 - theta[i])
         theta1[i] += random.uniform(lb, ub)
     return theta1
 
@@ -145,18 +148,23 @@ class State:
 
 class GridWorld:
 
-    def __init__(self, nFeats=4, nRows=5, nCols=5, gamma=0.9):
+    def __init__(self, nFeats=5, nRows=5, nCols=5, gamma=0.9, FeatsInc=[1,1,1,1,1]):
         self.nFeats = nFeats
         self.nRows = nRows
         self.nCols = nCols
         self.nStates = self.nRows * self.nCols
         self.gamma = gamma
+        self.FeatsInc = FeatsInc
         self.states = []
         for y in range(self.nRows):
             for x in range(self.nCols):
                 s = State((x, y))
-                s.features = [0] * nFeats
-                s.features[random.randint(0, nFeats - 1)] = 1
+                s.features, blank = [0] * nFeats, True
+                while blank:
+                    index = random.randint(0, nFeats - 1)
+                    if self.FeatsInc[index] == 1:
+                        s.features[index] = 1
+                        blank = False
                 if x > 0:
                     s.actions.append((-1, 0))
                 if x < self.nCols - 1:
