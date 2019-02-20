@@ -7,95 +7,89 @@ import random
 import math
 import time
 import numpy as np
-from scipy.stats import ortho_group
 
 
-def sample_collaborator(theta_bar, M, beta, n_samples, eta):
-    theta_chain, theta, count = [], theta_bar, 0
-    P = math.exp(- beta * distance(theta, theta_bar, M))
-    while count < n_samples:
-        theta1 = perturb_theta(theta, eta)
-        P1 = math.exp(- beta * distance(theta1, theta_bar, M))
-        if random.random() < min(1, P1 / P):
-            theta_chain.append(theta1)
-            theta, P = theta1, P1
-            count += 1
-    return theta_chain[random.randint(0, count - 1)]
+def generate_experts(nExperts):
+    W = np.zeros((5, nExperts))
+    for i in range(nExperts):
+        theta_i = [0] * 5
+        if random.random() < 0.6:
+            theta_i[0] = random.uniform(0.5, 1)
+            theta_i[1] = random.uniform(-0.1, 0.1)
+        else:
+            theta_i[0] = random.uniform(-0.1, 0.1)
+            theta_i[1] = random.uniform(0.5, 1)
+        theta_i[2] = random.uniform(-0.5, 0.4)
+        theta_i[3] = theta_i[2] - random.uniform(0, 0.4)
+        theta_i[4] = random.uniform(-1.0, -0.9)
+        W[:, i] = [theta_i[i] / 5.0 for i in range(5)]
+    return W
 
 
-def generate_experts(nFeats):
-    U = ortho_group.rvs(nFeats)
-    S1 = [random.uniform(0, 0.5), random.uniform(0, 0.5)]
-    for _ in range(2, nFeats):
-        S1.append(random.uniform(0.5, 2))
-    S1.sort(reverse=True)
-    S = np.diag(S1)
-    Sinv = np.linalg.inv(S)
-    return np.dot(np.dot(U, Sinv), U.T), sample_theta(nFeats)
-
-
-def sample_reward(mdp, D, T, eta, alpha, theta, theta_bar, M, beta):
-    theta_chain = []
+def sample_reward(mdp, D, T, eta, alpha, theta, theta_bar, A, beta):
+    theta_chain = [theta]
     pi, V = policy_iteraion(mdp, theta)
-    P = likelihood(mdp, theta, V, D, alpha, theta_bar, M, beta)
+    P = likelihood(mdp, theta, V, D, alpha, theta_bar, A, beta)
     watchdog, count = time.time(), 0
     while time.time() - watchdog < T:
         theta1 = perturb_theta(theta, eta)
         pi1, V1 = policy_iteraion(mdp, theta1, pi)
-        P1 = likelihood(mdp, theta1, V1, D, alpha, theta_bar, M, beta)
+        P1 = likelihood(mdp, theta1, V1, D, alpha, theta_bar, A, beta)
+        print(P1, P)
         if random.random() < min(1, P1 / P):
             theta_chain.append(theta1)
             theta, pi, P = theta1, pi1, P1
             count += 1
     print("I sampled " + str(count) + " times!")
     theta_mean = np.mean(np.array(theta_chain), axis=0).tolist()
-    Z = sum(theta_mean)
-    return [theta_mean[i] / Z for i in range(len(theta_mean))]
+    return theta_mean
 
 
 def simulated_human(mdp, theta, alpha, H):
-    _, V = policy_iteraion(mdp, theta)
+    pi, V = policy_iteraion(mdp, theta)
     D = {}
     for _ in range(H):
         s = mdp.sample_state()
-        q = [action_likelihood(mdp, theta, V, s, a, alpha) for a in s.actions]
+        while s in D:
+            s = mdp.sample_state()
+        q = [a_likelihood(mdp, theta, V, s, a, alpha) for a in s.actions]
         P = [q[i] / sum(q) for i in range(len(q))]
         a = np.random.choice(len(q), 1, p=P)[0]
         D[s] = s.actions[a]
     return D
 
 
-def likelihood(mdp, theta, V, D, alpha, theta_bar, M, beta):
-    Qsum = 0
+def likelihood(mdp, theta, V, D, alpha, theta_bar, A, beta):
+    P = 1.0
     for s in D:
-        Qsum += mdp.R(s, theta) + mdp.gamma * V[mdp.T(s, D[s])]
-    return math.exp(alpha * Qsum - beta * distance(theta, theta_bar, M))
+        p = a_likelihood(mdp, theta, V, s, D[s], alpha)
+        Z = sum(a_likelihood(mdp, theta, V, s, a, alpha) for a in s.actions)
+        P *= (p / Z)
+    return P * math.exp(- beta * distance(theta, theta_bar, A))
 
 
-def action_likelihood(mdp, theta, V, s, a, alpha):
-    return math.exp(alpha * (mdp.R(s, theta) + mdp.gamma * V[mdp.T(s, a)]))
+def a_likelihood(mdp, theta, V, s, a, alpha):
+    s1 = mdp.T(s, a)
+    return math.exp(alpha * (mdp.R(s, theta) + mdp.gamma * V[s1]))
 
 
-def distance(theta1, theta2, M):
+def distance(theta1, theta2, A):
     e = np.array(theta1) - np.array(theta2)
-    return np.dot(np.dot(e.T, M), e)
+    return np.dot(np.dot(e.T, A), e)
 
 
 def sample_theta(nFeats):
-    theta = [random.uniform(0.0, 1.0) for _ in range(nFeats)]
-    Z = sum(theta)
-    return [theta[i] / Z for i in range(nFeats)]
+    return [random.uniform(-1.0 / nFeats, 1.0 / nFeats) for _ in range(nFeats)]
 
 
 def perturb_theta(theta, eta):
     nFeats = len(theta)
     theta1 = [theta[i] for i in range(nFeats)]
     for i in range(nFeats):
-        lb = max(-eta / 2.0, 0.0 - theta[i])
-        ub = min(eta / 2.0, 1.0 - theta[i])
+        lb = max(-eta / 2.0, -1.0 / nFeats - theta[i])
+        ub = min(eta / 2.0, 1.0 / nFeats - theta[i])
         theta1[i] += random.uniform(lb, ub)
-    Z = sum(theta1)
-    return [theta1[i] / Z for i in range(nFeats)]
+    return theta1
 
 
 def policy_iteraion(mdp, theta, pi0=None):
@@ -131,11 +125,14 @@ def policy_value(mdp, theta, pi):
     return V
 
 
-def regret(mdp, theta_star, theta):
-    pi_star, V = policy_iteraion(mdp, theta_star)
-    pi, _ = policy_iteraion(mdp, theta, pi_star)
-    V1 = policy_value(mdp, theta_star, pi)
-    return sum(V[s] - V1[s] for s in mdp.states)
+def regret(mdp, theta_star, pi_star, pi):
+    V_star = policy_value(mdp, theta_star, pi_star)
+    V = policy_value(mdp, theta_star, pi)
+    return sum(V_star[s] - V[s] for s in mdp.states)
+
+
+def reward_error(theta_star, theta):
+    return sum(abs(i[0] - i[1]) for i in zip(theta_star, theta))
 
 
 class State:
@@ -158,8 +155,8 @@ class GridWorld:
         for y in range(self.nRows):
             for x in range(self.nCols):
                 s = State((x, y))
-                for _ in range(self.nFeats):
-                    s.features.append(random.choice([0, 1]))
+                s.features = [0] * nFeats
+                s.features[random.randint(0, nFeats - 1)] = 1
                 if x > 0:
                     s.actions.append((-1, 0))
                 if x < self.nCols - 1:
