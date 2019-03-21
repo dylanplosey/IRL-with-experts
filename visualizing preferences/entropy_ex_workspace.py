@@ -19,7 +19,7 @@ L = np.dot(U, Sm[:, [0, 1]])
 nFeats = 3
 nRows = 8
 nCols = 8
-gamma = 0.5
+gamma = 0.9
 mdp = ut.GridWorld(nFeats, nRows, nCols, gamma)
 
 # iteratively sample a reward and compare policy
