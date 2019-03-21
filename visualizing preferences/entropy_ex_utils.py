@@ -64,7 +64,7 @@ class State:
 
 class GridWorld:
 
-    def __init__(self, nFeats=3, nRows=5, nCols=5, gamma=0.95):
+    def __init__(self, nFeats=3, nRows=5, nCols=5, gamma=0.9):
         self.nFeats = nFeats
         self.nRows = nRows
         self.nCols = nCols
